@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 class UserCreate(BaseModel):
@@ -29,3 +29,19 @@ class TokenRefresh(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+class DocumentResponse(BaseModel):
+    id: int
+    title: str
+    filename: str
+    file_size: int
+    mime_type: str
+    processed: bool
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class DocumentListResponse(BaseModel):
+    documents: List[DocumentResponse]
+    total: int
