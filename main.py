@@ -8,8 +8,10 @@ import os
 
 from database import get_db
 from models import User, Document, DocumentChunk
-from schemas import UserCreate, UserLogin, UserResponse, Token, TokenRefresh, DocumentResponse, DocumentListResponse
+from schemas import UserCreate, UserLogin, UserResponse, Token, TokenRefresh, DocumentResponse, DocumentListResponse, SearchRequest, SearchResponse, QuestionRequest, QuestionResponse
 from document_processor import validate_file_type, validate_file_size, extract_text_from_file, chunk_text
+from vector_store import vector_store
+from rag_service import rag_service
 from auth import (
     get_password_hash,
     authenticate_user,
@@ -167,13 +169,36 @@ async def upload_document(
 
     # Create text chunks for vector storage
     chunks = chunk_text(text_content)
+
+    # Create all chunks in database first
+    chunk_objects = []
     for i, chunk_content in enumerate(chunks):
         chunk = DocumentChunk(
             content=chunk_content,
             chunk_index=i,
             document_id=db_document.id
         )
+        chunk_objects.append(chunk)
         db.add(chunk)
+
+    db.commit()  # Commit all chunks at once
+
+    # Refresh all chunks to get their IDs
+    for chunk in chunk_objects:
+        db.refresh(chunk)
+
+    # Prepare data for batch embedding processing
+    chunk_data = []
+    for chunk in chunk_objects:
+        chunk_data.append({
+            "chunk_id": chunk.id,
+            "text": chunk.content,
+            "document_id": db_document.id,
+            "user_id": current_user.id
+        })
+
+    # Create vector embeddings in batch
+    await vector_store.store_chunk_embeddings_batch(chunk_data)
 
     # Mark document as processed
     db_document.processed = True
@@ -210,7 +235,7 @@ def get_document(
     return document
 
 @app.delete("/documents/{document_id}")
-def delete_document(
+async def delete_document(
     document_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -223,6 +248,9 @@ def delete_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    # Delete vector embeddings
+    await vector_store.delete_document_embeddings(document_id, current_user.id)
+
     # Delete associated chunks
     db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete()
 
@@ -231,6 +259,41 @@ def delete_document(
     db.commit()
 
     return {"message": "Document deleted successfully"}
+
+@app.post("/search", response_model=SearchResponse)
+async def search_documents(
+    search_request: SearchRequest,
+    current_user: User = Depends(get_current_user)
+):
+    # Perform vector search
+    results = await vector_store.search_similar_chunks(
+        query=search_request.query,
+        user_id=current_user.id,
+        top_k=search_request.top_k,
+        document_ids=search_request.document_ids
+    )
+
+    return {
+        "results": results,
+        "query": search_request.query,
+        "total": len(results)
+    }
+
+@app.post("/ask", response_model=QuestionResponse)
+async def ask_question(
+    question_request: QuestionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Generate answer using RAG
+    result = await rag_service.generate_answer(
+        question=question_request.question,
+        user_id=current_user.id,
+        db=db,
+        document_ids=question_request.document_ids
+    )
+
+    return result
 
 if __name__ == "__main__":
     import uvicorn

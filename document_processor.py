@@ -1,7 +1,6 @@
 import os
 import magic
-import aiofiles
-from typing import Optional, List
+from typing import  List
 from PyPDF2 import PdfReader
 from bs4 import BeautifulSoup
 from fastapi import HTTPException

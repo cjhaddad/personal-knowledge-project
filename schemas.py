@@ -45,3 +45,34 @@ class DocumentResponse(BaseModel):
 class DocumentListResponse(BaseModel):
     documents: List[DocumentResponse]
     total: int
+
+class SearchRequest(BaseModel):
+    query: str
+    document_ids: Optional[List[int]] = None
+    top_k: int = 5
+
+class SearchResult(BaseModel):
+    chunk_id: int
+    document_id: int
+    text: str
+    score: float
+
+class SearchResponse(BaseModel):
+    results: List[SearchResult]
+    query: str
+    total: int
+
+class QuestionRequest(BaseModel):
+    question: str
+    document_ids: Optional[List[int]] = None
+    include_sources: bool = True
+
+class SourceInfo(BaseModel):
+    document_id: int
+    title: str
+    chunk_id: int
+
+class QuestionResponse(BaseModel):
+    answer: str
+    sources: List[SourceInfo]
+    question: str
